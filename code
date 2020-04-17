@@ -1,196 +1,23 @@
-import json
-import random
-from costs import check_hard_constraints, subjects_order_cost, empty_space_groups_cost,
-empty_space_teachers_cost, \
-free_hour
-from model import Class, Classroom, Data
-def load_data(file_path, teachers_empty_space, groups_empty_space, subjects_order):
-"""
-Loads and processes input data, initialises helper structures.
-:param file_path: path to file with input data
-:param teachers_empty_space: dictionary where key = name of the teacher, values = list of rows
-where it is in
-:param groups_empty_space: dictionary where key = group index, values = list of rows where it is
-in
-:param subjects_order: dictionary where key = (name of the subject, index of the group), value =
-[int, int, int]
-where ints represent start times (row in matrix) for types of classes P, V and L respectively. If start
-time is -1
-it means that that subject does not have that type of class.
-:return: Data(groups, teachers, classes, classrooms)
-"""
-with open(file_path) as file:
-data = json.load(file)
-# classes: dictionary where key = index of a class, value = class
-classes = {}
-# classrooms: dictionary where key = index, value = classroom name
-classrooms = {}
-# teachers: dictionary where key = teachers' name, value = index
-teachers = {}
-# groups: dictionary where key = name of the group, value = index
-groups = {}
-class_list = []
-for cl in data['Casovi']:
-new_group = cl['Grupe']
-new_teacher = cl['Nastavnik']
-# initialise for empty space of teachers
-if new_teacher not in teachers_empty_space:
-teachers_empty_space[new_teacher] = []
-new = Class(new_group, new_teacher, cl['Predmet'], cl['Tip'], cl['Trajanje'], cl['Ucionica'])
-# add groups
-for group in new_group:
-if group not in groups:
-groups[group] = len(groups)
-# initialise for empty space of groups
-groups_empty_space[groups[group]] = []
-# add teacher
-if new_teacher not in teachers:
-teachers[new_teacher] = len(teachers)
-class_list.append(new)
-# shuffle mostly because of teachers
-random.shuffle(class_list)
-# add classrooms
-for cl in class_list:
-classes[len(classes)] = cl
-# every class is assigned a list of classrooms he can be in as indexes (later columns of matrix)
-for type in data['Ucionice']:
-for name in data['Ucionice'][type]:
-new = Classroom(name, type)
-classrooms[len(classrooms)] = new
-# every class has a list of groups marked by its index, same for classrooms
-for i in classes:
-cl = classes[i]
-classroom = cl.classrooms
-index_classrooms = []
-# add classrooms
-for index, c in classrooms.items():
-if c.type == classroom:
-index_classrooms.append(index)
-cl.classrooms = index_classrooms
-class_groups = cl.groups
-index_groups = []
-for name, index in groups.items():
-if name in class_groups:
-# initialise order of subjects
-if (cl.subject, index) not in subjects_order:
-subjects_order[(cl.subject, index)] = [-1, -1, -1]
-index_groups.append(index)
-cl.groups = index_groups
-return Data(groups, teachers, classes, classrooms)
-def set_up(num_of_columns):
-"""
-Sets up the timetable matrix and dictionary that stores free fields from matrix.
-:param num_of_columns: number of classrooms
-:return: matrix, free
-"""
-w, h = num_of_columns, 60 # 5 (workdays) * 12 (work hours) = 60
-matrix = [[None for x in range(w)] for y in range(h)]
-free = []
-# initialise free dict as all the fields from matrix
-for i in range(len(matrix)):
-for j in range(len(matrix[i])):
-free.append((i, j))
-return matrix, free
-def show_timetable(matrix):
-"""
-Prints timetable matrix.
-"""
-days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-hours = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-# print heading for classrooms
-for i in range(len(matrix[0])):
-if i == 0:
-print('{:17s} C{:6s}'.format('', '0'), end='')
-else:
-print('C{:6s}'.format(str(i)), end='')
-print()
-d_cnt = 0
-h_cnt = 0
-for i in range(len(matrix)):
-day = days[d_cnt]
-hour = hours[h_cnt]
-print('{:10s} {:2d} -> '.format(day, hour), end='')
-for j in range(len(matrix[i])):
-print('{:6s} '.format(str(matrix[i][j])), end='')
-print()
-h_cnt += 1
-if h_cnt == 12:
-h_cnt = 0
-d_cnt += 1
-print()
-def write_solution_to_file(matrix, data, filled, filepath, groups_empty_space,
-teachers_empty_space, subjects_order):
-"""
-Writes statistics and schedule to file.
-"""
-f = open('solution_files/sol_' + filepath, 'w')
-f.write('-------------------------- STATISTICS --------------------------\n')
-cost_hard = check_hard_constraints(matrix, data)
-if cost_hard == 0:
-f.write('\nHard constraints satisfied: 100.00 %\n')
-else:
-f.write('Hard constraints NOT satisfied, cost: {}\n'.format(cost_hard))
-f.write('Soft constraints satisfied: {:.02f} %\n\n'.format(subjects_order_cost(subjects_order)))
-empty_groups, max_empty_group, average_empty_groups =
-empty_space_groups_cost(groups_empty_space)
-f.write('TOTAL empty space for all GROUPS and all days: {}\n'.format(empty_groups))
-f.write('MAX empty space for GROUP in day: {}\n'.format(max_empty_group))
-f.write('AVERAGE empty space for GROUPS per week: {:.02f}\n\
-n'.format(average_empty_groups))
-empty_teachers, max_empty_teacher, average_empty_teachers =
-empty_space_teachers_cost(teachers_empty_space)
-f.write('TOTAL empty space for all TEACHERS and all days: {}\n'.format(empty_teachers))
-f.write('MAX empty space for TEACHER in day: {}\n'.format(max_empty_teacher))
-f.write('AVERAGE empty space for TEACHERS per week: {:.02f}\n\
-n'.format(average_empty_teachers))
-f_hour = free_hour(matrix)
-if f_hour != -1:
-f.write('Free term -> {}\n'.format(f_hour))
-else:
-f.write('NO hours without classes.\n')
-groups_dict = {}
-for group_name, group_index in data.groups.items():
-if group_index not in groups_dict:
-groups_dict[group_index] = group_name
-days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-hours = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
-f.write('\n--------------------------- SCHEDULE ---------------------------')
-for class_index, times in filled.items():
-c = data.classes[class_index]
-groups = ' '
-for g in c.groups:
-groups += groups_dict[g] + ', '
-f.write('\n\nClass {}\n'.format(class_index))
-f.write('Teacher: {} \nSubject: {} \nGroups:{} \nType: {} \nDuration: {} hour(s)'
-.format(c.teacher, c.subject, groups[:len(groups) - 2], c.type, c.duration))
-room = str(data.classrooms[times[0][1]])
-f.write('\nClassroom: {:2s}\nTime: {}'.format(room[:room.rfind('-')], days[times[0][0] // 12]))
-for time in times:
-f.write(' {}'.format(hours[time[0] % 12]))
-f.close()
-def show_statistics(matrix, data, subjects_order, groups_empty_space, teachers_empty_space):
-"""
-Prints statistics.
-"""
-cost_hard = check_hard_constraints(matrix, data)
-if cost_hard == 0:
-print('Hard constraints satisfied: 100.00 %')
-else:
-print('Hard constraints NOT satisfied, cost: {}'.format(cost_hard))
-print('Soft constraints satisfied: {:.02f} %\n'.format(subjects_order_cost(subjects_order)))
-empty_groups, max_empty_group, average_empty_groups =
-empty_space_groups_cost(groups_empty_space)
-print('TOTAL empty space for all GROUPS and all days: ', empty_groups)
-print('MAX empty space for GROUP in day: ', max_empty_group)
-print('AVERAGE empty space for GROUPS per week: {:.02f}\n'.format(average_empty_groups))
-empty_teachers, max_empty_teacher, average_empty_teachers =
-empty_space_teachers_cost(teachers_empty_space)
-print('TOTAL empty space for all TEACHERS and all days: ', empty_teachers)
-print('MAX empty space for TEACHER in day: ', max_empty_teacher)
-print('AVERAGE empty space for TEACHERS per week: {:.02f}\
-n'.format(average_empty_teachers))
-f_hour = free_hour(matrix)
-if f_hour != -1:
-print('Free term ->', f_hour)
-else:
-print('NO hours without classes.')
+import pathlib
+import csv
+# Let's start by defines variables
+subjects_lis t = []
+start_hour = 8 # school start at 8.am
+next_hour = 9 # 1rst next hour is 9.am
+school_days = [
+'
+'
+time_slot_list = [] # get list of time slot
+subject_per_slot = {}
+MAX_HOUR_PER_SUBJECT = 6 # use capital letter because it's a
+constant variable
+subject_hour_count = {}
+def fill_in_subjects_list():
+"""Ask user subjects and fill in subjects
+enter_another_subject = Trueenter_another_subject = True while enter_another_subject:while enter_another_subject: subject = input('Type another subject: ')subject = input('Type another subject: ') subjesubject = subject.capitalize()ct = subject.capitalize() if not subject in subjects_list:if not subject in subjects_list: subjects_list.append(subject)subjects_list.append(subject) subject_hour_count[subject] = MAX_HOUR_PER_SUBJECTsubject_hour_count[subject] = MAX_HOUR_PER_SUBJECT else:else: print(f'Youprint(f'You\\'ve already type {subject} in list.')'ve already type {subject} in list.') question = input('Enter another subject (type "n" to exit)?')question = input('Enter another subject (type "n" to exit)?') if question.lower() == 'n':if question.lower() == 'n': enter_another_subject = Falseenter_another_subject = False def fill_out_subjects_list():def fill_out_subjects_list(): """Ask user subjects and fill in subjects list""""""Ask user subjects and fill in subjects list""" subjects = input('Type asubjects = input('Type all subjects you want add in subjects listll subjects you want add in subjects list\\
+and separate them by comma: ') # we collect all subjectsand separate them by comma: ') # we collect all subjects the_subjects = subjects.replace(', ', ',') # remove space after commathe_subjects = subjects.replace(', ', ',') # remove space after comma # Split all subjects in order to put them into a list# Split all subjects in order to put them into a list the_subjects = thethe_subjects = the_subjects.split(',')_subjects.split(',') for subject in the_subjects:for subject in the_subjects: subject = subject.capitalize()subject = subject.capitalize() if not subject in subjects_list:if not subject in subjects_list: subjects_list.append(subject)subjects_list.append(subject) subject_hour_count[subject] = MAX_HOUR_PER_SUBJECTsubject_hour_count[subject] = MAX_HOUR_PER_SUBJECT def ask_hour():def ask_hour(): """Ask hour to user""""""Ask hour to user""" print(f'Subjects list: {subjects_list}')print(f'Subjects list: {subjects_list}') print(f'Planning time: {start_hour}hprint(f'Planning time: {start_hour}h--{next_hour}h'){next_hour}h') user_answer = input('Whatuser_answer = input('What\\'s subject do you want put here? ')'s subject do you want put here? ')
+return user_answerreturn user_answer def fill_in_timetable():def fill_in_timetable(): """Dis"""Display an hour & ask user which subject he want to put there"""play an hour & ask user which subject he want to put there""" global start_hourglobal start_hour global next_hourglobal next_hour for day in school_days:for day in school_days: # Reset start and next hour# Reset start and next hour the_hour = {}the_hour = {} time = 0time = 0 start_hour = 8 # we suppose that schoolstart_hour = 8 # we suppose that school start at 8.amstart at 8.am next_hour = 9next_hour = 9 print('print('\\nn------------------------------------------------------')') print(f'{day.capitalize()} timetable')print(f'{day.capitalize()} timetable') print('print('------------------------------------------------------\\n')n') while time < 4: # Suppose we've 4hours course/day (you can while time < 4: # Suppose we've 4hours course/day (you can change itchange it))
+hour_format = f'{start_hour}hhour_format = f'{start_hour}h--{next_hour}h' # format time slot{next_hour}h' # format time slot # it's represent 8 hours/per day for school# it's represent 8 hours/per day for school if time == 2: # if it's a midday (12.am), make a breakif time == 2: # if it's a midday (12.am), make a break # Add a break in timetable with 'Break # Add a break in timetable with 'Break time' as inscriptiontime' as inscription subject_per_slot[hour_format] = ['Break time']subject_per_slot[hour_format] = ['Break time'] # Add hour format while making sure we avoid duplicate# Add hour format while making sure we avoid duplicate if not hour_format in time_slot_list:if not hour_format in time_slot_list: time_slot_list.append('houtime_slot_list.append('hour_format')r_format') else:else: chosen_subject = ask_hour().capitalize()chosen_subject = ask_hour().capitalize() print(f'start_hour: {start_hour}')print(f'start_hour: {start_hour}') pprint(f'next_hour: {next_hour}')rint(f'next_hour: {next_hour}') # Check that subject chosen by user is in subjects li# Check that subject chosen by user is in subjects listst while not chosen_subject in subjects_list:while not chosen_subject in subjects_list: print(f'{chosen_subject} is not in subjects list.')print(f'{chosen_subject} is not in subjects list.') print('Choose another subject.')print('Choose another subject.') chosen_suchosen_subject = ask_hour().capitalize()bject = ask_hour().capitalize() # Add hour format while making sure we avoid duplicate# Add hour format while making sure we avoid duplicate
+if not hour_format in time_slot_list:if not hour_format in time_slot_list: time_slot_list.append(hour_format)time_slot_list.append(hour_format) subject_per_slot[hour_format] = [chosen_subject]subject_per_slot[hour_format] = [chosen_subject] else:else: subject_per_slot[hsubject_per_slot[hour_format] += [chosen_subject]our_format] += [chosen_subject] # Check that chosen subject max hours didn't reached# Check that chosen subject max hours didn't reached for subject, max_hour in subject_hour_count.items():for subject, max_hour in subject_hour_count.items(): if chosen_subject == if chosen_subject == subject:subject: # remove one hour on subject max hour# remove one hour on subject max hour subject_hour_countsubject_hour_count[chosen_subject] = max_hour [chosen_subject] = max_hour -- 11 # go to next hour# go to next hour start_hour += 1 start_hour += 1 next_hour += 1next_hour += 1 time += 1time += 1 fill_fill_out_subjects_list()out_subjects_list() fill_in_timetable()fill_in_timetable() print(f'Subject per slot: {subject_per_slot}')print(f'Subject per slot: {subject_per_slot}') timetable_path = pathltimetable_path = pathlib.Path.cwd() / 'timetable.csv'ib.Path.cwd() / 'timetable.csv' # Now, let's write process to save timetable into a csv file# Now, let's write process to save timetable into a csv file
+with open(timetable_path, 'w') as timetable_file:with open(timetable_path, 'w') as timetable_file: timetable_writitimetable_writing = csv.writer(timetable_file)ng = csv.writer(timetable_file) # Write headers into csv file# Write headers into csv file csv_headers = ['Hours']csv_headers = ['Hours'] csv_headers.extend(school_days)csv_headers.extend(school_days) timetabltimetable_writing.writerow(csv_headers)e_writing.writerow(csv_headers) # Write content into csv file# Write content into csv file for time_slot, concerned_subfor time_slot, concerned_subjects in subject_per_slot.items():jects in subject_per_slot.items(): time_line = [time_slot]time_line = [time_slot] concerned_subjects_list = []concerned_subjects_list = [] if concerned_subjects == ['Break time']:if concerned_subjects == ['Break time']: for x in range(0, len(school_days)):for x in range(0, len(school_days)): concerned_subjects_list.append('Breakconcerned_subjects_list.append('Break time')time') else:else: concerned_subjects_list = concerned_subjectsconcerned_subjects_list = concerned_subjects final_line = time_line + concerned_subjects_listfinal_line = time_line + concerned_subjects_list timetable_writing.writerow(final_line)timetable_writing.writerow(final_line) print('Your timetable is ready')print('Your timetable is ready')
+
